@@ -180,6 +180,15 @@ npm run build
 npm test
 ```
 
+## Publishing
+
+npm publication is handled by GitHub Actions.
+
+- Push a tag in the form `vX.Y.Z` where `X.Y.Z` matches the `version` in `package.json`.
+- The `Publish Package` workflow validates the package and publishes it to npm.
+- The npm package must be configured for trusted publishing from the `SuLG-ik/kmp-api-lookup-mcp` GitHub repository.
+- See [PUBLISHING.md](./PUBLISHING.md) for the one-time npm setup and the exact release steps.
+
 ## Test Coverage
 
 The current test suite covers:
