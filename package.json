@@ -1,6 +1,6 @@
 {
   "name": "kmp-api-lookup-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server for fast Kotlin/Native iOS klib API lookup",
   "type": "module",
   "main": "dist/index.js",
