@@ -8,7 +8,7 @@ The server indexes local Kotlin/Native platform klibs into a persistent SQLite d
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 22+
 - A local Kotlin/Native installation with platform klibs available through `KONAN_HOME` or `~/.konan`
 
 ### From npm (recommended)

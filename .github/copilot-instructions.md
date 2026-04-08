@@ -12,7 +12,7 @@ Project summary:
 
 - TypeScript npm ESM MCP server
 - Package and bin command: kmp-api-lookup-mcp
-- Node.js baseline: 20+
+- Node.js baseline: 22+
 - Build: tsc to dist
 - Test runner: Vitest
 - SQLite cache: better-sqlite3 in user cache dir

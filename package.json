@@ -39,7 +39,7 @@
   },
   "homepage": "https://github.com/SuLG-ik/kmp-api-lookup-mcp#readme",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "dependencies": {
     "@cfworker/json-schema": "^4.1.1",
