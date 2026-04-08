@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "kmp-api-lookup": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "kmp-api-lookup-mcp"
+      ]
+    }
+  }
+}

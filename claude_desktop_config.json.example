@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "kmp-api-lookup": {
+      "command": "kmp-api-lookup-mcp"
+    }
+  }
+}

@@ -4,6 +4,129 @@ MCP server for fast lookup of Kotlin/Native iOS klib APIs.
 
 The server indexes local Kotlin/Native platform klibs into a persistent SQLite database and exposes a compact MCP API for symbol lookup and index maintenance.
 
+## Installation
+
+### Prerequisites
+
+- Node.js 20+
+- A local Kotlin/Native installation with platform klibs available through `KONAN_HOME` or `~/.konan`
+
+### From npm (recommended)
+
+```bash
+npm install -g kmp-api-lookup-mcp
+```
+
+### Run without global install via npx
+
+```bash
+npx -y kmp-api-lookup-mcp
+```
+
+This does not install the package globally. npm downloads and runs the published binary on demand.
+
+### From source
+
+```bash
+git clone https://github.com/SuLG-ik/kmp-api-lookup-mcp.git
+cd kmp-api-lookup-mcp
+npm install
+npm run build
+npm link
+```
+
+## Quick Start
+
+### As an MCP Server
+
+Add the server to your MCP client configuration.
+
+Common config file locations:
+
+- macOS Claude Desktop: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows Claude Desktop: `%APPDATA%/Claude/claude_desktop_config.json`
+- Linux Claude Desktop: `~/.config/Claude/claude_desktop_config.json`
+
+Ready-to-copy example files are included in the repository:
+
+- `claude_desktop_config.json.example` for a global npm install
+- `claude_desktop_config.npx.json.example` for running the published package through `npx`
+- `claude_desktop_config.konan_home.json.example` for a global npm install with explicit `KONAN_HOME`
+- `claude_desktop_config.from_source.json.example` for running the built server from the repository
+
+If the package is installed globally:
+
+```json
+{
+	"mcpServers": {
+		"kmp-api-lookup": {
+			"command": "kmp-api-lookup-mcp"
+		}
+	}
+}
+```
+
+If you prefer not to install the package globally:
+
+```json
+{
+	"mcpServers": {
+		"kmp-api-lookup": {
+			"command": "npx",
+			"args": ["-y", "kmp-api-lookup-mcp"]
+		}
+	}
+}
+```
+
+This is convenient for quick setup, but the first launch can be slower because `npx` may need to download the package.
+
+If you want to point directly at a specific Kotlin/Native installation:
+
+```json
+{
+	"mcpServers": {
+		"kmp-api-lookup": {
+			"command": "kmp-api-lookup-mcp",
+			"env": {
+				"KONAN_HOME": "/Users/you/.konan/kotlin-native-prebuilt-macos-aarch64-2.2.21"
+			}
+		}
+	}
+}
+```
+
+If you run the server from source:
+
+```json
+{
+	"mcpServers": {
+		"kmp-api-lookup": {
+			"command": "node",
+			"args": ["/absolute/path/to/kmp-api-lookup-mcp/dist/index.js"]
+		}
+	}
+}
+```
+
+### First Run
+
+After the server starts, the usual first steps are:
+
+1. Call `get_klib_index_status` to see whether an index already exists.
+2. If the index is missing, call `rebuild_klib_index` for the Kotlin/Native version and target you need.
+3. Start querying symbols with `lookup_symbol`.
+
+Example rebuild request:
+
+```json
+{
+	"kotlinVersion": "2.2.21",
+	"target": "ios_simulator_arm64",
+	"frameworks": ["AVFoundation", "AVKit", "MediaPlayer", "AVFAudio"]
+}
+```
+
 ## Current Scope
 
 - TypeScript npm ESM MCP server over stdio
@@ -155,6 +278,21 @@ Optional environment override:
 	"mcpServers": {
 		"kmp-api-lookup": {
 			"command": "kmp-api-lookup-mcp"
+		}
+	}
+}
+```
+
+### Typical Installed-Binary Configuration
+
+```json
+{
+	"mcpServers": {
+		"kmp-api-lookup": {
+			"command": "kmp-api-lookup-mcp",
+			"env": {
+				"KONAN_HOME": "/Users/you/.konan/kotlin-native-prebuilt-macos-aarch64-2.2.21"
+			}
 		}
 	}
 }

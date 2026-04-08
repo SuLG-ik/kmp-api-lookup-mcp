@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "kmp-api-lookup": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/kmp-api-lookup-mcp/dist/index.js"
+      ]
+    }
+  }
+}

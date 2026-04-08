@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "kmp-api-lookup": {
+      "command": "kmp-api-lookup-mcp",
+      "env": {
+        "KONAN_HOME": "/Users/you/.konan/kotlin-native-prebuilt-macos-aarch64-2.2.21"
+      }
+    }
+  }
+}
