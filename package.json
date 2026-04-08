@@ -1,0 +1,55 @@
+{
+  "name": "kmp-api-lookup-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for fast Kotlin/Native iOS klib API lookup",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "kmp-api-lookup-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "kotlin-native",
+    "klib",
+    "ios",
+    "kmp"
+  ],
+  "author": "Vladimir Nenashkin",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SuLG-ik/kmp-api-lookup-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SuLG-ik/kmp-api-lookup-mcp/issues"
+  },
+  "homepage": "https://github.com/SuLG-ik/kmp-api-lookup-mcp#readme",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@cfworker/json-schema": "^4.1.1",
+    "@modelcontextprotocol/server": "^2.0.0-alpha.2",
+    "better-sqlite3": "^12.8.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.5.2",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "vitest": "^2.1.9"
+  }
+}
