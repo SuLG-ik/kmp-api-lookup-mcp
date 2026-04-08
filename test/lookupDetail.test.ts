@@ -273,6 +273,97 @@ describe('lookup detail presentation', () => {
     expect(full.omittedEntries).toBe(0);
   });
 
+  it('marks mutable property member cards as settable even when the setter accessor is not part of the member entry list', () => {
+    const memberCard: LookupFullMemberCard = {
+      framework: 'AVFoundation',
+      packageName: 'platform.AVFoundation',
+      ownerName: 'AVPlayerLayer',
+      ownerQualifiedName: 'platform.AVFoundation.AVPlayerLayer',
+      detailLevel: 'full',
+      ownerKind: 'class',
+      ownerKotlinSignature: 'public open class platform.AVFoundation.AVPlayerLayer : platform.QuartzCore.CALayer',
+      extendsType: 'platform.QuartzCore.CALayer',
+      implementsTypes: [],
+      name: 'player',
+      requiredImports: [],
+      totalEntries: 2,
+      omittedEntries: 0,
+      entries: [
+        {
+          name: 'player',
+          kind: 'property',
+          scope: 'instance',
+          declarationForm: 'direct_member',
+          kotlinSignature: 'public final var player: platform.AVFoundation.AVPlayer?',
+          objcSelector: null,
+          requiredImports: [],
+        },
+        {
+          name: 'player',
+          kind: 'function',
+          scope: 'instance',
+          declarationForm: 'direct_member',
+          kotlinSignature: 'public open external fun player(): platform.AVFoundation.AVPlayer?',
+          objcSelector: 'player',
+          requiredImports: [],
+        },
+      ],
+    };
+
+    const compact = applyLookupDetailToMemberCard(memberCard, 'compact');
+
+    expect(compact.detailLevel).toBe('compact');
+    if (compact.detailLevel !== 'compact') {
+      throw new Error('Expected compact member card');
+    }
+    expect(compact.kind).toBe('property');
+    expect(compact.accessors).toEqual({ getter: true, setter: true });
+    expect(compact.mutable).toBe(true);
+  });
+
+  it('represents compact typealias member cards without accessor noise', () => {
+    const memberCard: LookupFullMemberCard = {
+      framework: 'AVFoundation',
+      packageName: 'platform.AVFoundation',
+      ownerName: 'platform.AVFoundation',
+      ownerQualifiedName: 'platform.AVFoundation',
+      detailLevel: 'full',
+      ownerKind: 'package',
+      ownerKotlinSignature: 'package platform.AVFoundation',
+      extendsType: null,
+      implementsTypes: [],
+      name: 'AVPlayerStatus',
+      requiredImports: ['platform.AVFoundation.AVPlayerStatus'],
+      totalEntries: 1,
+      omittedEntries: 0,
+      entries: [
+        {
+          name: 'AVPlayerStatus',
+          kind: 'typealias',
+          scope: 'top_level',
+          declarationForm: 'direct_member',
+          kotlinSignature:
+            'public typealias AVPlayerStatus = platform.darwin.NSInteger^ /* = kotlin.Long /* = platform.darwin.NSInteger^ */ */',
+          objcSelector: null,
+          requiredImports: ['platform.AVFoundation.AVPlayerStatus'],
+        },
+      ],
+    };
+
+    const compact = applyLookupDetailToMemberCard(memberCard, 'compact');
+
+    expect(compact.detailLevel).toBe('compact');
+    if (compact.detailLevel !== 'compact') {
+      throw new Error('Expected compact member card');
+    }
+    expect(compact.kind).toBe('typealias');
+    expect(compact.kotlinSignatures).toEqual([
+      'public typealias AVPlayerStatus = platform.darwin.NSInteger^ /* = kotlin.Long /* = platform.darwin.NSInteger^ */ */',
+    ]);
+    expect(compact.accessors).toBeNull();
+    expect(compact.mutable).toBeNull();
+  });
+
   it('keeps set-like methods when they are not property accessors', () => {
     const memberCard: LookupFullMemberCard = {
       framework: 'AVFoundation',

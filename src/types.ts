@@ -5,9 +5,9 @@ export type IndexedMemberKind = 'class' | 'constructor' | 'member';
 export type LookupQueryKind = 'auto' | 'class' | 'member';
 export type LookupDetailLevel = 'compact' | 'full';
 export type LookupResultKind = 'class' | 'member' | 'ambiguous' | 'not_found';
-export type LookupMemberKind = 'constructor' | 'function' | 'property';
-export type LookupClassKind = 'class' | 'interface' | 'object' | 'companion';
-export type LookupMemberScope = 'instance' | 'class';
+export type LookupMemberKind = 'constructor' | 'function' | 'property' | 'typealias';
+export type LookupClassKind = 'class' | 'interface' | 'object' | 'companion' | 'package';
+export type LookupMemberScope = 'instance' | 'class' | 'top_level';
 
 export interface DiscoveredInstallation {
   readonly kotlinVersion: string;

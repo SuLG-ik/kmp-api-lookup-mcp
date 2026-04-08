@@ -17,7 +17,7 @@ The server indexes local Kotlin/Native platform klibs into a persistent SQLite d
 
 ### `lookup_symbol`
 
-Resolve a Kotlin/Native Apple platform class or member into a compact development card.
+Resolve a Kotlin/Native Apple platform class, member, or top-level platform alias/constant into a compact development card.
 
 Input:
 
@@ -41,6 +41,7 @@ Behavior:
 	- the full direct member set, ObjC bridge extension members, and `Meta` class members when `detail` is set to `full`
 	- `requiredImports` for code generation
 - A member query like `AVPlayer.play` or `play` returns a compact grouped card with overload signatures and imports.
+- Exact top-level platform aliases and constants like `AVPlayerStatus`, `AVLayerVideoGravity`, or `AVPlayerItemDidPlayToEndTimeNotification` resolve to package-scoped member cards instead of degrading into fuzzy class matches.
 - If the query is ambiguous, the tool returns a short alternatives list instead of dumping raw search rows.
 - Output intentionally omits noisy fields like DB paths, internal IDs, raw metadata dumps, match stages, and installation paths.
 - `detail` defaults to `compact`. Use `"detail": "full"` only when you really need the entire class surface.

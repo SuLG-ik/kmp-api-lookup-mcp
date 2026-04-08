@@ -17,7 +17,7 @@ import {
 } from '../search-utils.js';
 import { KlibIndexStorage } from '../storage/index.js';
 import { applyLookupDetailToClassCard, applyLookupDetailToMemberCard } from './lookupDetail.js';
-import { buildClassCardFromMetadata } from './metadataInspector.js';
+import { buildClassCardFromMetadata, buildTopLevelMemberCardFromMetadata } from './metadataInspector.js';
 import type {
   DiscoveredInstallation,
   DiscoveryResponse,
@@ -47,18 +47,29 @@ interface ResolvedSearchContext {
   readonly selectedFrameworks: string[];
 }
 
-interface LookupOwnerCandidate {
+interface LookupMetadataContext {
   readonly framework: string;
-  readonly packageName: string;
-  readonly className: string;
   readonly target: string;
   readonly konanHome: string;
+}
+
+interface LookupOwnerCandidate extends LookupMetadataContext {
+  readonly packageName: string;
+  readonly className: string;
+  readonly declarationRawSignatures: string[];
   readonly rank: number;
 }
 
 interface LookupMemberCandidate extends LookupOwnerCandidate {
   readonly memberName: string;
   readonly selectors: string[];
+}
+
+interface LookupTopLevelCandidate extends LookupMetadataContext {
+  readonly packageName: string;
+  readonly symbolName: string;
+  readonly rawSignatures: string[];
+  readonly rank: number;
 }
 
 type LookupResolution =
@@ -70,6 +81,10 @@ type LookupResolution =
       readonly kind: 'member';
       readonly owner: LookupOwnerCandidate;
       readonly memberName: string;
+    }
+  | {
+      readonly kind: 'top_level';
+      readonly symbol: LookupTopLevelCandidate;
     }
   | {
       readonly kind: 'ambiguous';
@@ -94,22 +109,16 @@ export class KlibLookupService {
   async lookup(request: LookupRequest): Promise<LookupResponse> {
     const query = request.query.trim();
     const detailLevel: LookupDetailLevel = request.detail ?? 'compact';
+    const queryKind = request.queryKind ?? 'auto';
 
     if (!query) {
       throw new Error('lookup_symbol requires a non-empty query');
     }
 
     const context = this.resolveSearchContext(request);
-    const results = this.storage.searchSymbols({
-      query,
-      kotlinVersion: context.effectiveVersion,
-      targets: context.effectiveTargets,
-      frameworks: context.selectedFrameworks,
-      matchMode: 'auto',
-      limit: Math.max(request.limit ?? 5, 20),
-      includeMetaClasses: true,
-      includeRawSignature: true,
-    });
+    const requestedLimit = request.limit ?? 5;
+    const initialSearchLimit = Math.max(requestedLimit, 20);
+    let results = this.searchLookupCandidates(query, context, initialSearchLimit);
     const effectiveTarget = pickPreferredTarget(context.effectiveTargets);
 
     if (results.length === 0) {
@@ -125,12 +134,25 @@ export class KlibLookupService {
       };
     }
 
-    const resolution = this.resolveLookupResolution(
+    let resolution = this.resolveLookupResolution(
       query,
-      request.queryKind ?? 'auto',
+      queryKind,
       results,
-      request.limit ?? 5
+      requestedLimit
     );
+
+    if (shouldExpandLookupCandidateWindow(query, queryKind, resolution)) {
+      const expandedSearchLimit = Math.max(initialSearchLimit, 300);
+
+      if (expandedSearchLimit > initialSearchLimit) {
+        const expandedResults = this.searchLookupCandidates(query, context, expandedSearchLimit);
+
+        if (expandedResults.length > results.length) {
+          results = expandedResults;
+          resolution = this.resolveLookupResolution(query, queryKind, results, requestedLimit);
+        }
+      }
+    }
 
     if (resolution.kind === 'not_found') {
       return {
@@ -158,9 +180,53 @@ export class KlibLookupService {
       };
     }
 
+    if (resolution.kind === 'top_level') {
+      const memberCard = await this.loadTopLevelMemberCard(resolution.symbol);
+
+      if (!memberCard) {
+        throw new Error(
+          `Failed to load Kotlin metadata for top-level symbol ${resolution.symbol.packageName}.${resolution.symbol.symbolName}`
+        );
+      }
+
+      return {
+        query,
+        effectiveKotlinVersion: context.effectiveVersion,
+        effectiveTarget: resolution.symbol.target,
+        detailLevel,
+        resultKind: 'member',
+        classCard: null,
+        memberCard: applyLookupDetailToMemberCard(memberCard, detailLevel),
+        alternatives: [],
+      };
+    }
+
     const classCard = await this.loadClassCard(resolution.owner);
 
     if (!classCard) {
+      const topLevelFallback = await this.loadTopLevelMemberCard({
+        framework: resolution.owner.framework,
+        packageName: resolution.owner.packageName,
+        symbolName: resolution.owner.className,
+        target: resolution.owner.target,
+        konanHome: resolution.owner.konanHome,
+        rawSignatures: resolution.owner.declarationRawSignatures,
+        rank: resolution.owner.rank,
+      });
+
+      if (topLevelFallback) {
+        return {
+          query,
+          effectiveKotlinVersion: context.effectiveVersion,
+          effectiveTarget: resolution.owner.target,
+          detailLevel,
+          resultKind: 'member',
+          classCard: null,
+          memberCard: applyLookupDetailToMemberCard(topLevelFallback, detailLevel),
+          alternatives: [],
+        };
+      }
+
       throw new Error(
         `Failed to load Kotlin metadata for ${resolution.owner.packageName}.${resolution.owner.className}`
       );
@@ -296,6 +362,23 @@ export class KlibLookupService {
       noResults: searchResult.noResults,
       symbol: searchResult.results[0] ?? null,
     };
+  }
+
+  private searchLookupCandidates(
+    query: string,
+    context: ResolvedSearchContext,
+    limit: number
+  ): SearchResultItem[] {
+    return this.storage.searchSymbols({
+      query,
+      kotlinVersion: context.effectiveVersion,
+      targets: context.effectiveTargets,
+      frameworks: context.selectedFrameworks,
+      matchMode: 'auto',
+      limit,
+      includeMetaClasses: true,
+      includeRawSignature: true,
+    });
   }
 
   async rebuild(request: RebuildRequest): Promise<RebuildResult> {
@@ -531,15 +614,33 @@ export class KlibLookupService {
   ): LookupResolution {
     const classCandidates = this.collectClassCandidates(results);
     const memberCandidates = this.collectMemberCandidates(results);
+    const topLevelCandidates = this.collectTopLevelCandidates(results);
     const exactClassMatches = classCandidates.filter((candidate) => matchesClassQuery(query, candidate));
     const exactMemberMatches = memberCandidates.filter((candidate) => matchesMemberQuery(query, candidate));
+    const exactTopLevelMatches = topLevelCandidates.filter((candidate) => matchesTopLevelQuery(query, candidate));
 
     if (queryKind === 'class') {
-      return this.resolveClassCandidates(exactClassMatches.length > 0 ? exactClassMatches : classCandidates, limit);
+      if (exactClassMatches.length > 0) {
+        return this.resolveClassCandidates(exactClassMatches, limit);
+      }
+
+      if (exactTopLevelMatches.length > 0) {
+        return this.resolveTopLevelCandidates(exactTopLevelMatches, limit);
+      }
+
+      return this.resolveClassCandidates(classCandidates, limit);
     }
 
     if (queryKind === 'member') {
-      return this.resolveMemberCandidates(exactMemberMatches.length > 0 ? exactMemberMatches : memberCandidates, limit);
+      if (exactMemberMatches.length > 0) {
+        return this.resolveMemberCandidates(exactMemberMatches, limit);
+      }
+
+      if (exactTopLevelMatches.length > 0) {
+        return this.resolveTopLevelCandidates(exactTopLevelMatches, limit);
+      }
+
+      return this.resolveMemberCandidates(memberCandidates, limit);
     }
 
     if (query.includes('.') && exactMemberMatches.length > 0) {
@@ -552,6 +653,10 @@ export class KlibLookupService {
 
     if (exactMemberMatches.length > 0) {
       return this.resolveMemberCandidates(exactMemberMatches, limit);
+    }
+
+    if (exactTopLevelMatches.length > 0) {
+      return this.resolveTopLevelCandidates(exactTopLevelMatches, limit);
     }
 
     if (classCandidates.length === 1) {
@@ -569,6 +674,13 @@ export class KlibLookupService {
       };
     }
 
+    if (topLevelCandidates.length === 1 && classCandidates.length === 0 && memberCandidates.length === 0) {
+      return {
+        kind: 'top_level',
+        symbol: topLevelCandidates[0],
+      };
+    }
+
     if (classCandidates.length > 1 && looksLikeClassQuery(query)) {
       return this.resolveClassCandidates(classCandidates, limit);
     }
@@ -579,6 +691,10 @@ export class KlibLookupService {
 
     if (classCandidates.length > 0) {
       return this.resolveClassCandidates(classCandidates, limit);
+    }
+
+    if (topLevelCandidates.length > 0) {
+      return this.resolveTopLevelCandidates(topLevelCandidates, limit);
     }
 
     return {
@@ -645,6 +761,35 @@ export class KlibLookupService {
     };
   }
 
+  private resolveTopLevelCandidates(
+    candidates: LookupTopLevelCandidate[],
+    limit: number
+  ): LookupResolution {
+    if (candidates.length === 0) {
+      return {
+        kind: 'not_found',
+      };
+    }
+
+    if (candidates.length === 1) {
+      return {
+        kind: 'top_level',
+        symbol: candidates[0],
+      };
+    }
+
+    return {
+      kind: 'ambiguous',
+      alternatives: candidates.slice(0, limit).map((candidate) => ({
+        resultKind: 'member',
+        framework: candidate.framework,
+        packageName: candidate.packageName,
+        ownerName: null,
+        symbolName: candidate.symbolName,
+      })),
+    };
+  }
+
   private collectClassCandidates(results: SearchResultItem[]): LookupOwnerCandidate[] {
     const candidates = new Map<string, LookupOwnerCandidate>();
 
@@ -661,7 +806,23 @@ export class KlibLookupService {
 
       const key = `${result.framework}|${result.packageName}|${ownerClassName}`;
 
+      const classDeclarationRawSignature =
+        result.declarationForm === 'class' && result.rawSignature ? result.rawSignature : null;
+
       if (candidates.has(key)) {
+        const existing = candidates.get(key);
+
+        if (!existing) {
+          return;
+        }
+
+        if (classDeclarationRawSignature && !existing.declarationRawSignatures.includes(classDeclarationRawSignature)) {
+          candidates.set(key, {
+            ...existing,
+            declarationRawSignatures: [...existing.declarationRawSignatures, classDeclarationRawSignature],
+          });
+        }
+
         return;
       }
 
@@ -671,6 +832,7 @@ export class KlibLookupService {
         className: ownerClassName,
         target: result.target,
         konanHome: result.konanHome,
+        declarationRawSignatures: classDeclarationRawSignature ? [classDeclarationRawSignature] : [],
         rank: index,
       });
     });
@@ -714,6 +876,7 @@ export class KlibLookupService {
         className: ownerClassName,
         target: result.target,
         konanHome: result.konanHome,
+        declarationRawSignatures: [],
         memberName: result.memberName,
         selectors: [],
         selectorsSet: new Set(result.objcSelector ? [result.objcSelector] : []),
@@ -728,8 +891,55 @@ export class KlibLookupService {
         className: candidate.className,
         target: candidate.target,
         konanHome: candidate.konanHome,
+        declarationRawSignatures: candidate.declarationRawSignatures,
         memberName: candidate.memberName,
         selectors: [...candidate.selectorsSet],
+        rank: candidate.rank,
+      }))
+      .sort((left, right) => left.rank - right.rank);
+  }
+
+  private collectTopLevelCandidates(results: SearchResultItem[]): LookupTopLevelCandidate[] {
+    const candidates = new Map<
+      string,
+      LookupTopLevelCandidate & {
+        rawSignatureSet: Set<string>;
+      }
+    >();
+
+    results.forEach((result, index) => {
+      if (!isTopLevelLookupResult(result) || !result.rawSignature) {
+        return;
+      }
+
+      const key = `${result.framework}|${result.packageName}|${result.memberName}`;
+      const existing = candidates.get(key);
+
+      if (existing) {
+        existing.rawSignatureSet.add(result.rawSignature);
+        return;
+      }
+
+      candidates.set(key, {
+        framework: result.framework,
+        packageName: result.packageName,
+        symbolName: result.memberName,
+        target: result.target,
+        konanHome: result.konanHome,
+        rawSignatures: [],
+        rawSignatureSet: new Set([result.rawSignature]),
+        rank: index,
+      });
+    });
+
+    return [...candidates.values()]
+      .map((candidate) => ({
+        framework: candidate.framework,
+        packageName: candidate.packageName,
+        symbolName: candidate.symbolName,
+        target: candidate.target,
+        konanHome: candidate.konanHome,
+        rawSignatures: [...candidate.rawSignatureSet].sort((left, right) => left.localeCompare(right)),
         rank: candidate.rank,
       }))
       .sort((left, right) => left.rank - right.rank);
@@ -743,6 +953,24 @@ export class KlibLookupService {
       framework: owner.framework,
       packageName: owner.packageName,
       className: owner.className,
+    });
+  }
+
+  private async loadTopLevelMemberCard(
+    symbol: LookupTopLevelCandidate
+  ): Promise<LookupFullMemberCard | null> {
+    if (symbol.rawSignatures.length === 0) {
+      return null;
+    }
+
+    const metadataLines = await this.getMetadataLines(symbol);
+
+    return buildTopLevelMemberCardFromMetadata({
+      metadataLines,
+      framework: symbol.framework,
+      packageName: symbol.packageName,
+      symbolName: symbol.symbolName,
+      rawSignatures: symbol.rawSignatures,
     });
   }
 
@@ -778,27 +1006,27 @@ export class KlibLookupService {
     };
   }
 
-  private async getMetadataLines(owner: LookupOwnerCandidate): Promise<string[]> {
-    const cacheKey = `${owner.konanHome}|${owner.target}|${owner.framework}`;
+  private async getMetadataLines(context: LookupMetadataContext): Promise<string[]> {
+    const cacheKey = `${context.konanHome}|${context.target}|${context.framework}`;
     const cached = this.metadataCache.get(cacheKey);
 
     if (cached) {
       return cached;
     }
 
-    const pending = this.loadMetadataLines(owner);
+    const pending = this.loadMetadataLines(context);
     this.metadataCache.set(cacheKey, pending);
     return pending;
   }
 
-  private async loadMetadataLines(owner: LookupOwnerCandidate): Promise<string[]> {
-    const installation = await this.resolveInstallation(undefined, owner.konanHome);
-    const frameworks = await listFrameworkSources(installation, owner.target, [owner.framework]);
+  private async loadMetadataLines(context: LookupMetadataContext): Promise<string[]> {
+    const installation = await this.resolveInstallation(undefined, context.konanHome);
+    const frameworks = await listFrameworkSources(installation, context.target, [context.framework]);
     const framework = frameworks[0];
 
     if (!framework) {
       throw new Error(
-        `Framework ${owner.framework} is not available for ${owner.target} in ${owner.konanHome}`
+        `Framework ${context.framework} is not available for ${context.target} in ${context.konanHome}`
       );
     }
 
@@ -883,6 +1111,44 @@ function buildOwnerQueryForms(candidate: Pick<LookupOwnerCandidate, 'className' 
     simpleName,
     `${candidate.packageName}.${candidate.className}`,
   ].map((value) => normalizeText(value)));
+}
+
+function matchesTopLevelQuery(query: string, candidate: LookupTopLevelCandidate): boolean {
+  const normalizedQuery = normalizeText(query);
+
+  return buildTopLevelQueryForms(candidate).includes(normalizedQuery);
+}
+
+function buildTopLevelQueryForms(
+  candidate: Pick<LookupTopLevelCandidate, 'framework' | 'packageName' | 'symbolName'>
+): string[] {
+  return uniqueSorted([
+    candidate.symbolName,
+    `${candidate.packageName}.${candidate.symbolName}`,
+    `${candidate.framework}.${candidate.symbolName}`,
+  ].map((value) => normalizeText(value)));
+}
+
+function isTopLevelLookupResult(result: SearchResultItem): boolean {
+  return result.className === null && result.declarationForm === 'direct_member';
+}
+
+function shouldExpandLookupCandidateWindow(
+  query: string,
+  queryKind: LookupQueryKind,
+  resolution: LookupResolution
+): boolean {
+  if (queryKind === 'class' || !query.includes('.')) {
+    return false;
+  }
+
+  const memberQuery = query.slice(query.lastIndexOf('.') + 1).trim();
+
+  if (!memberQuery || memberQuery.includes(':')) {
+    return false;
+  }
+
+  return resolution.kind === 'ambiguous' || resolution.kind === 'not_found';
 }
 
 function looksLikeClassQuery(query: string): boolean {

@@ -83,6 +83,26 @@ export function applyLookupDetailToMemberCard(
     } satisfies LookupCompactMemberCard;
   }
 
+  const typealiasEntries = sortEntries(fullCard.entries.filter((entry) => entry.kind === 'typealias'));
+
+  if (typealiasEntries.length > 0) {
+    return {
+      framework: fullCard.framework,
+      packageName: fullCard.packageName,
+      ownerName: fullCard.ownerName,
+      ownerQualifiedName: fullCard.ownerQualifiedName,
+      ownerKind: fullCard.ownerKind,
+      detailLevel: 'compact',
+      name: fullCard.name,
+      requiredImports: fullCard.requiredImports,
+      kind: 'typealias',
+      kotlinSignatures: typealiasEntries.map((entry) => entry.kotlinSignature),
+      objcSelectors: [],
+      accessors: null,
+      mutable: null,
+    } satisfies LookupCompactMemberCard;
+  }
+
   const grouped = groupCallables(filterNonAccessorCallables(fullCard.entries, propertyInfoByName));
   const summary = grouped[0];
 
@@ -140,9 +160,8 @@ function collectPropertyInfo(entries: LookupSymbolSignature[]): Map<string, Prop
   for (const property of properties) {
     const propertyType = getPropertyType(property.kotlinSignature);
     const mutable = isMutableProperty(property.kotlinSignature);
-    const getter = entries.some((entry) => isPropertyGetter(entry, property.name, propertyType));
-    const setter =
-      mutable && entries.some((entry) => isPropertySetter(entry, property.name, propertyType));
+    const getter = true;
+    const setter = mutable;
     const requiredImports = uniqueSorted(
       entries
         .filter(
@@ -260,6 +279,12 @@ function inferCompactMemberKind(entries: LookupSymbolSignature[]): LookupCompact
 
   if (property) {
     return 'property';
+  }
+
+  const typealias = entries.find((entry) => entry.kind === 'typealias');
+
+  if (typealias) {
+    return 'typealias';
   }
 
   return 'function';

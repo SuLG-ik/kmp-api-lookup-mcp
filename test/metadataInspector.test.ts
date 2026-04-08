@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildClassCardFromMetadata } from '../src/server/metadataInspector.js';
+import {
+  buildClassCardFromMetadata,
+  buildTopLevelMemberCardFromMetadata,
+} from '../src/server/metadataInspector.js';
 
 describe('buildClassCardFromMetadata', () => {
   it('builds a compact class card with supertypes, meta methods, and bridge members', () => {
@@ -73,5 +76,69 @@ describe('buildClassCardFromMetadata', () => {
       kotlinSignature:
         'public open external fun playerWithURL(URL: platform.Foundation.NSURL): platform.AVFoundation.AVPlayer',
     });
+  });
+
+  it('builds a top-level typealias member card from metadata signatures', () => {
+    const memberCard = buildTopLevelMemberCardFromMetadata({
+      metadataLines: [
+        '      // signature: platform.AVFoundation/AVPlayerStatus|null[100]',
+        '      public typealias AVPlayerStatus = platform/darwin/NSInteger^ /* = kotlin/Long /* = platform/darwin/NSInteger^ */ */',
+      ],
+      framework: 'AVFoundation',
+      packageName: 'platform.AVFoundation',
+      symbolName: 'AVPlayerStatus',
+      rawSignatures: ['platform.AVFoundation/AVPlayerStatus|null[100]'],
+    });
+
+    expect(memberCard).toMatchObject({
+      framework: 'AVFoundation',
+      packageName: 'platform.AVFoundation',
+      ownerName: 'platform.AVFoundation',
+      ownerQualifiedName: 'platform.AVFoundation',
+      ownerKind: 'package',
+      name: 'AVPlayerStatus',
+      requiredImports: ['platform.AVFoundation.AVPlayerStatus'],
+    });
+    expect(memberCard?.entries).toEqual([
+      expect.objectContaining({
+        name: 'AVPlayerStatus',
+        kind: 'typealias',
+        scope: 'top_level',
+        declarationForm: 'direct_member',
+        kotlinSignature:
+          'public typealias AVPlayerStatus = platform.darwin.NSInteger^ /* = kotlin.Long /* = platform.darwin.NSInteger^ */ */',
+      }),
+    ]);
+  });
+
+  it('builds a top-level property member card from metadata signatures', () => {
+    const memberCard = buildTopLevelMemberCardFromMetadata({
+      metadataLines: [
+        '      // signature: platform.AVFoundation/AVPlayerItemDidPlayToEndTimeNotification|{}AVPlayerItemDidPlayToEndTimeNotification[100]',
+        '      public final val AVPlayerItemDidPlayToEndTimeNotification: kotlin/String? /* = platform/Foundation/NSNotificationName^? */',
+      ],
+      framework: 'AVFoundation',
+      packageName: 'platform.AVFoundation',
+      symbolName: 'AVPlayerItemDidPlayToEndTimeNotification',
+      rawSignatures: [
+        'platform.AVFoundation/AVPlayerItemDidPlayToEndTimeNotification|{}AVPlayerItemDidPlayToEndTimeNotification[100]',
+      ],
+    });
+
+    expect(memberCard).toMatchObject({
+      ownerKind: 'package',
+      name: 'AVPlayerItemDidPlayToEndTimeNotification',
+      requiredImports: ['platform.AVFoundation.AVPlayerItemDidPlayToEndTimeNotification'],
+    });
+    expect(memberCard?.entries).toEqual([
+      expect.objectContaining({
+        name: 'AVPlayerItemDidPlayToEndTimeNotification',
+        kind: 'property',
+        scope: 'top_level',
+        declarationForm: 'direct_member',
+        kotlinSignature:
+          'public final val AVPlayerItemDidPlayToEndTimeNotification: kotlin.String? /* = platform.Foundation.NSNotificationName^? */',
+      }),
+    ]);
   });
 });

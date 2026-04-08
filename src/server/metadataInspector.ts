@@ -2,6 +2,7 @@ import { parseSignatureLine } from '../indexer/index.js';
 import type {
   LookupClassKind,
   LookupFullClassCard,
+  LookupFullMemberCard,
   LookupMemberScope,
   LookupSymbolSignature,
   ParsedSignatureRecord,
@@ -61,6 +62,48 @@ export function buildClassCardFromMetadata(params: {
     constructors: sortEntries(constructors),
     members: sortEntries([...directMembers, ...bridgeMembers]),
     classMembers: sortEntries(classMembers),
+  };
+}
+
+export function buildTopLevelMemberCardFromMetadata(params: {
+  readonly metadataLines: string[];
+  readonly framework: string;
+  readonly packageName: string;
+  readonly symbolName: string;
+  readonly rawSignatures: readonly string[];
+}): LookupFullMemberCard | null {
+  const entries = uniqueEntries(
+    params.rawSignatures.flatMap((rawSignature) => {
+      const entry = findTopLevelEntryBySignature(
+        params.metadataLines,
+        rawSignature,
+        params.packageName,
+        params.symbolName
+      );
+
+      return entry ? [entry] : [];
+    })
+  );
+
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return {
+    framework: params.framework,
+    packageName: params.packageName,
+    ownerName: params.packageName,
+    ownerQualifiedName: params.packageName,
+    detailLevel: 'full',
+    ownerKind: 'package',
+    ownerKotlinSignature: `package ${params.packageName}`,
+    extendsType: null,
+    implementsTypes: [],
+    name: params.symbolName,
+    requiredImports: uniqueSortedStrings(entries.flatMap((entry) => entry.requiredImports)),
+    totalEntries: entries.length,
+    omittedEntries: 0,
+    entries: sortEntries(entries),
   };
 }
 
@@ -172,6 +215,57 @@ function createLookupEntry(
   };
 }
 
+function findTopLevelEntryBySignature(
+  lines: readonly string[],
+  rawSignature: string,
+  packageName: string,
+  symbolName: string
+): LookupSymbolSignature | null {
+  const signatureLine = `// signature: ${rawSignature}`;
+  const parsed = parseSignatureLine(rawSignature);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index].trim() !== signatureLine) {
+      continue;
+    }
+
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      const trimmed = lines[cursor].trim();
+
+      if (!trimmed) {
+        continue;
+      }
+
+      if (trimmed.startsWith('// signature: ')) {
+        break;
+      }
+
+      if (trimmed.startsWith('@')) {
+        continue;
+      }
+
+      if (!trimmed.startsWith('public ') || isAccessorLine(trimmed) || !isDeclarationLine(trimmed)) {
+        continue;
+      }
+
+      const name = parsed?.memberSearchName ?? symbolName;
+
+      return {
+        name,
+        kind: resolveMemberKind(trimmed),
+        scope: 'top_level',
+        declarationForm:
+          parsed?.declarationForm === 'objc_bridge_extension' ? 'objc_bridge_extension' : 'direct_member',
+        kotlinSignature: normalizeDeclarationLine(trimmed),
+        objcSelector: parsed?.objcSelector ?? null,
+        requiredImports: [`${packageName}.${name}`],
+      };
+    }
+  }
+
+  return null;
+}
+
 function findDeclarationBlock(lines: readonly string[], qualifiedName: string): DeclarationBlock | null {
   const headerPattern = new RegExp(
     `^\\s*public\\b.*\\b(?:class|interface|companion object|object)\\s+${escapeRegex(qualifiedName)}(?:\\s*:\\s*.*)?\\s*\\{$`
@@ -207,6 +301,10 @@ function findDeclarationBlock(lines: readonly string[], qualifiedName: string): 
 function resolveMemberKind(declarationLine: string): LookupSymbolSignature['kind'] {
   if (declarationLine.includes(' constructor(')) {
     return 'constructor';
+  }
+
+  if (/\btypealias\b/.test(declarationLine)) {
+    return 'typealias';
   }
 
   if (/\b(?:val|var)\b/.test(declarationLine)) {
@@ -307,7 +405,11 @@ function isAccessorLine(value: string): boolean {
 }
 
 function isDeclarationLine(value: string): boolean {
-  return /\b(?:constructor|fun|val|var)\b/.test(value);
+  return /\b(?:constructor|fun|val|var|typealias)\b/.test(value);
+}
+
+function uniqueSortedStrings(values: readonly string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
 function escapeRegex(value: string): string {
